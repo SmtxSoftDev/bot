@@ -6,7 +6,7 @@ $bot->Start();
 
 class Bot
 {
-    private $url = "https://lalafo.kg/bishkek/kvartiry/arenda-kvartir/dolgosrochnaya-arenda-kvartir/1-bedroom/2-bedrooms/3-bedrooms/4-bedrooms/5-bedrooms/studio/6-bedroom?price[from]=10000&price[to]=1000000¤cy=KGS";
+    private $url = "https://lalafo.kg/bishkek/kvartiry/arenda-kvartir/dolgosrochnaya-arenda-kvartir/1-bedroom/2-bedrooms/3-bedrooms/4-bedrooms/5-bedrooms/studio/6-bedroom?price[from]=10000&price[to]=1000000%C2%A4cy=KGS&sort_by=newest";
 
     private $type = 1;
 
@@ -58,31 +58,33 @@ class Bot
                         $UpdateDate = date("y-m-d H:m:s", $item->updated_time);
                         $DataUrl = $this->lalafoUrl . $item->url;
 
-                        foreach ($item->images as $image) {
-                            if($index > 6)
-                                break;
-                            if($index == 0){
-                                $files[] = array('type'=>'photo','media'=>$image->original_url, 'caption'=>'Цена: '.$Price.' '.$Description.' Телефон: '.$Mobile);
-                            }else{
-                                $files[] = array('type'=>'photo','media'=>$image->original_url);
+                        if(!$this->IsAgency($Mobile) && !$this->IsDataAlreadySend($DataId)){
+                            $this->InsertData($DataId);
+                            foreach ($item->images as $image) {
+                                if($index > 6)
+                                    break;
+                                if($index == 0){
+                                    $files[] = array('type'=>'photo','media'=>$image->original_url, 'caption'=>'Цена: '.$Price.' '.$Description.' Телефон: '.$Mobile);
+                                }else{
+                                    $files[] = array('type'=>'photo','media'=>$image->original_url);
+                                }
+                                $index++;
                             }
-                            $index++;
-                        }
 
-                        foreach($users as $user)
-                        {
-                            if($this->GetUserByChatId($user["ChatId"])["IsActive"] == '1')
+                            foreach($users as $user)
                             {
-                                $data = [
-                                    'chat_id' => $user["ChatId"],
-                                    'media' => json_encode($files)
-                                ];
-                                $res = $this->Request('sendMediaGroup', $data);
+                                if($this->GetUserByChatId($user["ChatId"])["IsActive"] == '1')
+                                {
+                                    $data = [
+                                        'chat_id' => $user["ChatId"],
+                                        'media' => json_encode($files)
+                                    ];
+                                    $res = $this->Request('sendMediaGroup', $data);
+                                }
                             }
+                            $files = [];
+                            usleep(9000000);
                         }
-                        
-                        $files = [];
-                        usleep(9000000);
                     }
                 }
             } catch (Exception $ex) {
@@ -175,23 +177,30 @@ class Bot
 
             if (!$result) {
                 $pdo->exec("CREATE DATABASE $dbname CHARACTER SET utf8 COLLATE utf8_general_ci");
-                
-                $pdo = new PDO("mysql:host=$host;port=$port;dbname=$dbname;charset=utf8", $user, $pass);
-                $pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
-                
-                $pdo->exec("CREATE TABLE Users (
-                                Id INT AUTO_INCREMENT PRIMARY KEY,
-                                UserName VARCHAR(255),
-                                ChatId VARCHAR(255),
-                                RegisterDate DATETIME,
-                                Conditions TEXT,
-                                IsActive BOOLEAN
-                            ) ENGINE=InnoDB DEFAULT CHARSET=utf8 COLLATE=utf8_general_ci");
             }
-            
+
             $pdo = new PDO("mysql:host=$host;port=$port;dbname=$dbname;charset=utf8", $user, $pass);
             $pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
-            
+
+            $pdo->exec("CREATE TABLE IF NOT EXISTS Users (
+                            Id INT AUTO_INCREMENT PRIMARY KEY,
+                            UserName VARCHAR(255),
+                            ChatId VARCHAR(255),
+                            RegisterDate DATETIME,
+                            Conditions TEXT,
+                            IsActive BOOLEAN
+                        ) ENGINE=InnoDB DEFAULT CHARSET=utf8 COLLATE=utf8_general_ci");
+
+            $pdo->exec("CREATE TABLE IF NOT EXISTS Agency (
+                            Mabile VARCHAR(50),
+                            INDEX (Mabile)
+                        ) ENGINE=InnoDB DEFAULT CHARSET=utf8 COLLATE=utf8_general_ci");
+
+            $pdo->exec("CREATE TABLE IF NOT EXISTS Data (
+                            Id VARCHAR(25),
+                            INDEX (Id)
+                        ) ENGINE=InnoDB DEFAULT CHARSET=utf8 COLLATE=utf8_general_ci");
+
             return $pdo;
         } catch(PDOException $e) {
             echo 'Подключение к базе данных не удалось: ' . $e->getMessage();
@@ -260,6 +269,49 @@ class Bot
         }
         return null;
     }
+
+    public function IsAgency($mobile)
+    {
+        $pdo = $this->connect();
+        if ($pdo) {
+            $stmt = $pdo->prepare('SELECT * FROM Agency WHERE Mobile = :mobile');
+            $stmt->execute(['mobile' => $mobile]);
+            $agency = $stmt->fetch(PDO::FETCH_ASSOC);
+            if ($agency)
+                return true;
+        }
+        return false;
+    }
+
+    public function IsDataAlreadySend($Id)
+    {
+        $pdo = $this->connect();
+        if ($pdo) {
+            $stmt = $pdo->prepare('SELECT * FROM Data WHERE Id = :Id');
+            $stmt->execute(['Id' => $Id]);
+            $data = $stmt->fetch(PDO::FETCH_ASSOC);
+            if ($data)
+                return true;
+        }
+        return false;
+    }
+
+    public function InsertData($Id)
+    {
+        $pdo = $this->connect();
+        if ($pdo) {
+            try {
+                $stmt = $pdo->prepare('INSERT INTO Data (Id) VALUES (:Id)');
+                $stmt->execute(['Id' => $Id]);
+                return true;
+            } catch (PDOException $e) {
+                echo 'Ошибка при вставке данных: ' . $e->getMessage();
+                return false;
+            }
+        }
+        return false;
+    }
+
 
     private function GetUsersFromDb()
     {
